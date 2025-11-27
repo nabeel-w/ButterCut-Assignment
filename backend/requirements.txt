@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic
+SQLAlchemy
+psycopg2-binary
+python-dotenv
