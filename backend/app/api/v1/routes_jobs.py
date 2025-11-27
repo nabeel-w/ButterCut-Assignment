@@ -108,3 +108,22 @@ def download_result(job_id: str, db: Session = Depends(get_db)):
         media_type="video/mp4",
         filename=f"{job.id}_output.mp4",
     )
+
+@router.get("/jobs")
+def list_jobs(db: Session = Depends(get_db)) -> List[JobStatusResponse]:
+    jobs: List[RenderJob] = db.query(RenderJob).all()
+    response = []
+    for job in jobs:
+        result_url = None
+        if job.status.value == "done" and job.output_path:
+            result_url = f"/api/v1/jobs/{job.id}/result"
+        response.append(
+            JobStatusResponse(
+                id=job.id,
+                status=job.status.value,
+                message=job.message,
+                progress=job.progress or 0.0,
+                result_url=result_url,
+            )
+        )
+    return response
