@@ -137,14 +137,21 @@ def build_filter_complex(
         elif o.type in ("image", "video"):
             asset_path = resolve_overlay_path(o.content)
             extra_inputs.append(asset_path)
-            input_index = len(extra_inputs)  # 1-based, since 0 is main video
+            input_index = len(extra_inputs)
 
             x_expr = f"w*{o.x}"
             y_expr = f"h*{o.y}"
 
+            scaled_label = f"[ov{label_index}]"
+            padded_label = f"[pad{label_index}]"
+
             chain = (
-                f"{current_label}"
-                f"[{input_index}:v]"
+                # scale to fit inside 100x100 while preserving aspect ratio
+                f"[{input_index}:v]scale=100:100:force_original_aspect_ratio=decrease{scaled_label};"
+                # pad to exactly 100x100 and center the image
+                f"{scaled_label}pad=100:100:(ow-iw)/2:(oh-ih)/2:color=black@0.0{padded_label};"
+                # overlay on video
+                f"{current_label}{padded_label}"
                 f"overlay=x={x_expr}:y={y_expr}:"
                 f"enable='between(t,{o.start_time},{o.end_time})'"
                 f"{out_label}"
