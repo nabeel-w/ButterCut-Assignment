@@ -25,4 +25,7 @@ export interface Overlay {
   box?: boolean;
   box_color?: string;
   box_borderw?: number;
+
+  // Extra Frontend-only fields
+  uri?: string; // for image/video overlays
 }

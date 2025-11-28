@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, TouchableOpacity } from "react-native";
+import { View, TouchableOpacity, Text, Alert } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -7,6 +7,7 @@ import { editorStyles } from "../styles/editorScreen";
 import { Overlay, OverlayType } from "../lib/types";
 import OverlayPreview from "../components/OverlayPreview";
 import TextOverlayEditor from "../components/TextOverlayEditor";
+import OverlayTimingControls from "../components/OverlayTimingControls";
 import { api } from "../lib/api";
 
 type SelectedVideo = {
@@ -15,22 +16,23 @@ type SelectedVideo = {
   mimeType?: string | null;
 };
 
-const MOCK_IMAGE_ASSETS = ["logo.png", "sticker1.png"];
-const MOCK_VIDEO_ASSETS = ["clip1.mp4", "clip2.mp4"];
-
 const EditorScreen: React.FC = () => {
   const router = useRouter();
 
   const [video, setVideo] = useState<SelectedVideo | null>(null);
+  const [videoDurationSec, setVideoDurationSec] = useState<number | null>(null);
   const [overlays, setOverlays] = useState<Overlay[]>([]);
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(
     null
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploadingAsset, setIsUploadingAsset] = useState(false)
+  
+  const genId = () => {
+    return Math.random().toString(36).substr(2, 9);
+  }
 
-  const genId = () => Math.random().toString(36).slice(2, 10);
-
-  const pickVideo = async () => {
+  const pickMainVideo = async () => {
     const result = await DocumentPicker.getDocumentAsync({
       type: "video/*",
       copyToCacheDirectory: true,
@@ -43,21 +45,27 @@ const EditorScreen: React.FC = () => {
         name: file.name,
         mimeType: file.mimeType,
       });
+      setVideoDurationSec(null);
+      setOverlays([]);
+      setSelectedOverlayId(null);
     }
   };
 
   const addOverlay = (type: OverlayType) => {
-    if (!video) return;
+    if (!video) {
+      Alert.alert("Select a video first");
+      return;
+    }
+
+    const id = genId();
 
     const base: Overlay = {
-      id: genId(),
+      id,
       type,
       content:
         type === "text"
           ? "New Text"
-          : type === "image"
-          ? MOCK_IMAGE_ASSETS[0]
-          : MOCK_VIDEO_ASSETS[0],
+          : "", // image/video content becomes filename after upload
       x: 0.5,
       y: 0.5,
       start_time: 0,
@@ -73,7 +81,7 @@ const EditorScreen: React.FC = () => {
     }
 
     setOverlays((prev) => [...prev, base]);
-    setSelectedOverlayId(base.id!);
+    setSelectedOverlayId(id);
   };
 
   const updateOverlay = (id: string, patch: Partial<Overlay>) => {
@@ -82,24 +90,86 @@ const EditorScreen: React.FC = () => {
     );
   };
 
+  const handleUpdatePosition = (id: string, x: number, y: number) => {
+    updateOverlay(id, { x, y });
+  };
+
+  const uploadOverlayAsset = async (overlay: Overlay) => {
+    if (!video) {
+      Alert.alert("Select a video first");
+      return;
+    }
+    if (!overlay.id) return;
+
+    try {
+      const docType =
+        overlay.type === "image" ? ["image/*"] : ["video/*"];
+
+      const result = await DocumentPicker.getDocumentAsync({
+        type: docType,
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled === true) return;
+
+      setIsUploadingAsset(true);
+
+      const formData = new FormData();
+      formData.append("file", {
+        uri: result.assets[0].uri,
+        name: result.assets[0].name,
+        type: result.assets[0].mimeType ?? "application/octet-stream",
+      } as any);
+
+      const res = await fetch(`${api.defaults.baseURL}/overlays/assets`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        console.log("Asset upload failed", text);
+        Alert.alert("Asset upload failed");
+        return;
+      }
+
+      const data = await res.json();
+      // expects { filename: "stored_name.ext" }
+      if (!data.filename) {
+        Alert.alert("Invalid asset upload response");
+        return;
+      }
+
+      updateOverlay(overlay.id, { content: data.filename, uri: result.assets[0].uri });
+    } catch (e) {
+      console.log("Asset upload error", e);
+      Alert.alert("Asset upload error");
+    } finally {
+      setIsUploadingAsset(false);
+    }
+  };
+
   const submitJob = async () => {
-    if (!video) return;
+    if (!video) {
+      Alert.alert("Select a video first");
+      return;
+    }
     if (overlays.length === 0) {
-      alert("Add at least one overlay.");
+      Alert.alert("Add at least one overlay");
       return;
     }
 
     try {
       setIsSubmitting(true);
-      const formData = new FormData();
 
+      const formData = new FormData();
       formData.append("file", {
         uri: video.uri,
         name: video.name,
         type: video.mimeType ?? "video/mp4",
       } as any);
 
-      const payload = overlays.map(({ id, ...rest }) => rest);
+      const payload = overlays.map(({ id, uri, ...rest }) => rest);
       formData.append("overlays", JSON.stringify(payload));
 
       const res = await fetch(`${api.defaults.baseURL}/jobs`, {
@@ -110,16 +180,16 @@ const EditorScreen: React.FC = () => {
       if (!res.ok) {
         const text = await res.text();
         console.log("Upload failed", text);
-        alert("Upload failed");
+        Alert.alert("Upload failed");
         return;
       }
 
       const data = await res.json();
-      alert(`Job created: ${data.id}`);
+      Alert.alert("Job created", `ID: ${data.id}`);
       router.back();
     } catch (e) {
       console.log("Submit error", e);
-      alert("Something went wrong");
+      Alert.alert("Something went wrong");
     } finally {
       setIsSubmitting(false);
     }
@@ -130,42 +200,29 @@ const EditorScreen: React.FC = () => {
 
   return (
     <View style={editorStyles.screen}>
-      {/* Top: video picker */}
-      <View style={editorStyles.pickerContainer}>
-        <TouchableOpacity onPress={pickVideo} style={editorStyles.pickerButton}>
-          <Feather name="video" size={18} color="#ffffff" />
-          <Text style={editorStyles.pickerButtonText}>
-            {video ? "Change Video" : "Select Video"}
-          </Text>
-        </TouchableOpacity>
-        {video && (
-          <Text style={editorStyles.pickerFileName}>
-            Selected: {video.name}
-          </Text>
-        )}
-      </View>
-
-      {/* Middle: preview */}
+      {/* Canvas area */}
       <View style={editorStyles.previewWrapper}>
         <OverlayPreview
           videoUri={video?.uri ?? null}
           overlays={overlays}
           selectedOverlayId={selectedOverlayId}
           onSelectOverlay={(id) => setSelectedOverlayId(id)}
-          onUpdateOverlayPosition={(id, x, y) => updateOverlay(id, { x, y })}
+          onUpdateOverlayPosition={handleUpdatePosition}
+          onPickVideo={pickMainVideo}
+          onVideoDurationChange={(sec) => setVideoDurationSec(sec)}
         />
       </View>
 
-      {/* Bottom: controls */}
+      {/* Bottom controls */}
       <View style={editorStyles.bottomPanel}>
         <View style={editorStyles.controlsRow}>
+          {/* Overlay type buttons */}
           <View style={editorStyles.overlayButtonRow}>
             <TouchableOpacity
               style={[
                 editorStyles.overlayButton,
                 editorStyles.overlayButtonText,
               ]}
-              disabled={!video}
               onPress={() => addOverlay("text")}
             >
               <Feather name="type" size={16} color="#ffffff" />
@@ -177,7 +234,6 @@ const EditorScreen: React.FC = () => {
                 editorStyles.overlayButton,
                 editorStyles.overlayButtonImage,
               ]}
-              disabled={!video}
               onPress={() => addOverlay("image")}
             >
               <Feather name="image" size={16} color="#ffffff" />
@@ -189,7 +245,6 @@ const EditorScreen: React.FC = () => {
                 editorStyles.overlayButton,
                 editorStyles.overlayButtonVideo,
               ]}
-              disabled={!video}
               onPress={() => addOverlay("video")}
             >
               <Feather name="film" size={16} color="#ffffff" />
@@ -197,6 +252,7 @@ const EditorScreen: React.FC = () => {
             </TouchableOpacity>
           </View>
 
+          {/* Render button */}
           <TouchableOpacity
             style={[
               editorStyles.renderButton,
@@ -218,13 +274,67 @@ const EditorScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
 
+        {/* Selected overlay controls */}
         {selectedOverlay && (
-          <TextOverlayEditor
-            overlay={selectedOverlay}
-            onUpdate={(patch) =>
-              selectedOverlay.id && updateOverlay(selectedOverlay.id, patch)
-            }
-          />
+          <>
+            {selectedOverlay.type === "text" ? (
+              <TextOverlayEditor
+                overlay={selectedOverlay}
+                onUpdate={(patch) =>
+                  selectedOverlay.id &&
+                  updateOverlay(selectedOverlay.id, patch)
+                }
+                videoDurationSec={videoDurationSec}
+              />
+            ) : (
+              <>
+                {/* Upload asset button */}
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    marginBottom: 8,
+                  }}
+                >
+                  <TouchableOpacity
+                    onPress={() => uploadOverlayAsset(selectedOverlay)}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      borderRadius: 8,
+                      backgroundColor: "#111827",
+                      marginRight: 8,
+                    }}
+                  >
+                    <Feather name="upload" size={14} color="#ffffff" />
+                    <Text
+                      style={{ color: "#ffffff", fontSize: 12, marginLeft: 4 }}
+                    >
+                      {selectedOverlay.content
+                        ? "Change file"
+                        : "Upload file"}
+                    </Text>
+                  </TouchableOpacity>
+                  <Text style={{ fontSize: 11, color: "#6b7280" }}>
+                    {isUploadingAsset
+                      ? "Uploading..."
+                      : selectedOverlay.content || "No file selected"}
+                  </Text>
+                </View>
+
+                <OverlayTimingControls
+                  overlay={selectedOverlay}
+                  onUpdate={(patch) =>
+                    selectedOverlay.id &&
+                    updateOverlay(selectedOverlay.id, patch)
+                  }
+                  videoDurationSec={videoDurationSec}
+                />
+              </>
+            )}
+          </>
         )}
       </View>
     </View>

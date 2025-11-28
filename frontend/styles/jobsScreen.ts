@@ -11,6 +11,22 @@ export const jobsStyles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 80,
   },
+
+  // 🔽 NEW
+  headerContainer: {
+    marginBottom: 16,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: colors.text,
+    marginBottom: 4,
+  },
+  headerSubtitle: {
+    fontSize: 13,
+    color: colors.muted,
+  },
+
   jobCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -80,5 +96,21 @@ export const jobsStyles = StyleSheet.create({
     shadowColor: "#000",
     shadowOpacity: 0.25,
     shadowRadius: 6,
+  },
+  actionsContainer: {
+    marginLeft: 8,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  downloadButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primary,
+  },
+  downloadButtonDisabled: {
+    backgroundColor: "#e5e7eb",
   },
 });

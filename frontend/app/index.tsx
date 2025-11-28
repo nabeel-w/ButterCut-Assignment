@@ -6,6 +6,7 @@ import { Job } from "../lib/types";
 import { jobsStyles } from "../styles/jobsScreen";
 import JobListItem from "../components/JobListItem";
 import FloatingActionButton from "../components/FloatingActionButton";
+import JobsHeader from "@/components/JobsHeader";
 
 const JobsScreen: React.FC = () => {
   const router = useRouter();
@@ -25,7 +26,10 @@ const JobsScreen: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // set time interval to fetch jobs every 10 seconds
     fetchJobs();
+    const interval = setInterval(fetchJobs, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   return (
@@ -43,6 +47,7 @@ const JobsScreen: React.FC = () => {
           contentContainerStyle={jobsStyles.listContent}
           data={jobs}
           keyExtractor={(item) => item.id}
+          ListHeaderComponent={() => <JobsHeader count={jobs.length} />}
           renderItem={({ item }) => <JobListItem job={item} />}
           refreshControl={
             <RefreshControl refreshing={loading} onRefresh={fetchJobs} />

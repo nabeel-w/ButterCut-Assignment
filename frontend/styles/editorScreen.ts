@@ -6,34 +6,11 @@ export const editorStyles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.bg,
   },
-  pickerContainer: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 8,
-  },
-  pickerButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.primary,
-    borderRadius: 16,
-    paddingVertical: 12,
-  },
-  pickerButtonText: {
-    color: "#ffffff",
-    fontWeight: "600",
-    marginLeft: 8,
-    fontSize: 14,
-  },
-  pickerFileName: {
-    marginTop: 6,
-    fontSize: 11,
-    color: colors.muted,
-  },
+  // canvas area
   previewWrapper: {
     flex: 1,
     paddingHorizontal: 16,
-    paddingBottom: 8,
+    paddingVertical: 12,
   },
   previewContainer: {
     flex: 1,
@@ -41,6 +18,26 @@ export const editorStyles = StyleSheet.create({
     borderRadius: 16,
     overflow: "hidden",
   },
+  emptyCanvasTouchable: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+  emptyCanvasTitle: {
+    marginTop: 12,
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#e5e7eb",
+  },
+  emptyCanvasSubtitle: {
+    marginTop: 4,
+    fontSize: 13,
+    color: "#9ca3af",
+    textAlign: "center",
+  },
+
+  // bottom panel
   bottomPanel: {
     borderTopWidth: 1,
     borderTopColor: "#e5e7eb",
@@ -64,11 +61,6 @@ export const editorStyles = StyleSheet.create({
     paddingVertical: 6,
     marginRight: 8,
   },
-  overlayButtonLabel: {
-    color: "#ffffff",
-    fontSize: 12,
-    marginLeft: 4,
-  },
   overlayButtonText: {
     backgroundColor: "#111827",
   },
@@ -77,6 +69,11 @@ export const editorStyles = StyleSheet.create({
   },
   overlayButtonVideo: {
     backgroundColor: "#374151",
+  },
+  overlayButtonLabel: {
+    color: "#ffffff",
+    fontSize: 12,
+    marginLeft: 4,
   },
   renderButton: {
     flexDirection: "row",
@@ -96,14 +93,16 @@ export const editorStyles = StyleSheet.create({
     fontSize: 12,
     marginLeft: 4,
   },
+
+  // editor / inputs
   editPanelTitle: {
     fontSize: 11,
     color: colors.muted,
-    marginBottom: 4,
+    marginBottom: 6,
   },
   textInputRow: {
     flexDirection: "row",
-    marginBottom: 4,
+    marginBottom: 8,
   },
   textInput: {
     flex: 1,
@@ -116,17 +115,43 @@ export const editorStyles = StyleSheet.create({
   },
   smallInput: {
     width: 80,
+    marginRight: 0,
   },
-  timingRow: {
+  colorPaletteRow: {
     flexDirection: "row",
+    marginBottom: 8,
   },
-  timingInput: {
-    flex: 1,
-    backgroundColor: "#f3f4f6",
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    fontSize: 11,
+  colorSwatch: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     marginRight: 8,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  colorSwatchSelected: {
+    borderWidth: 2,
+    borderColor: "#f59e0b",
+  },
+  boxToggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  boxToggleLabel: {
+    fontSize: 11,
+    color: colors.muted,
+    marginRight: 8,
+  },
+  timingSection: {
+    marginTop: 4,
+  },
+  timingLabel: {
+    fontSize: 11,
+    color: colors.muted,
+    marginBottom: 2,
+  },
+  timingSliderRow: {
+    marginBottom: 4,
   },
 });
