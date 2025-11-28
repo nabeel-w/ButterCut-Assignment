@@ -1,3 +1,5 @@
+# Backend (FastAPI + ffmpeg)
+
 ## 1. Overview
 
 The backend is a **video rendering service** built with:
@@ -661,3 +663,784 @@ If you support uploading overlays (images/clips) separately:
 ```
 
 Then the frontend sets `overlay.content = "23b3aed4-c75b-4f96-a880-b725eddf1b60.png"`.
+
+----------
+
+# Frontend (Expo + React Native)
+
+## 1. Overview
+
+The frontend is a **mobile video editing client** built with:
+
+-   **Expo / React Native** – mobile app framework
+    
+-   **expo-av** – video playback
+    
+-   **expo-document-picker** – selecting videos and overlay assets
+    
+-   **@react-native-community/slider** – time-range sliders
+    
+-   **react-native-svg** – circular progress indicator for jobs
+    
+-   **expo-file-system** – downloading rendered videos to device storage
+    
+-   **axios** – HTTP client for talking to the FastAPI backend
+    
+
+The app provides:
+
+-   A **Projects list** screen that shows all render jobs and their progress, with a circular progress “thumbnail” and a download button.
+    
+-   A **Video editor** screen where the user:
+    
+    -   Picks a base video
+        
+    -   Adds text/image/clip overlays
+        
+    -   Drags overlays around on a “canvas” (the video preview)
+        
+    -   Configures overlay timing and text styling
+        
+    -   Submits a render job to the backend.
+        
+
+----------
+
+## 2. High-level architecture
+
+```mermaid
+flowchart LR
+    A["Jobs Screen\n(FlatList of jobs)"] -->|"Tap + FAB"| B["Editor Screen\n(Video + overlay canvas)"]
+    B -->|"POST /api/v1/jobs\n(file + overlays)"| C["FastAPI Backend"]
+    A -->|"GET /api/v1/jobs"| C
+    A -->|"GET /api/v1/jobs/{id}/detail"| C
+    A -->|"GET /api/v1/jobs/{id}/result"| C
+
+    subgraph Mobile App
+      A
+      B
+    end
+
+```
+
+-   **Jobs Screen** fetches job list from `/api/v1/jobs`.
+    
+-   Each job item fetches its detail from `/api/v1/jobs/{id}/detail` and allows downloading `/api/v1/jobs/{id}/result`.
+    
+-   **Editor Screen** builds up overlay metadata and submits to `/api/v1/jobs`.
+    
+
+----------
+
+## 3. Project structure
+
+Inside `frontend/`:
+
+```text
+frontend/
+  app/
+    index.tsx            # Jobs list screen (root)
+    editor.tsx           # Video editor screen
+  components/
+    JobListItem.tsx      # Single job card with progress + download
+    JobsHeader.tsx       # "Your Projects" header for FlatList
+    OverlayPreview.tsx   # Video + draggable overlay canvas
+    TextOverlayEditor.tsx# Controls for text overlays
+    OverlayTimingControls.tsx  # Controls for timing (image/video overlays)
+    CircularProgress.tsx # SVG-based circular progress ring
+  lib/
+    api.ts               # axios instance + API_BASE_URL
+    types.ts             # Shared TS types for Job, Overlay, JobDetail
+  styles/
+    common.ts            # Color palette & shared styling tokens
+    jobsScreen.ts        # Styles for Jobs screen + cards
+    editorScreen.ts      # Styles for editor screen
+
+```
+
+----------
+
+## 4. Shared types & API client
+
+### 4.1 Types (`lib/types.ts`)
+
+Frontend types mirror backend schemas (plus some UI-only fields):
+
+```ts
+export type JobStatus = "pending" | "processing" | "done" | "error";
+
+export interface Job {
+  id: string;
+  status: JobStatus;
+  message?: string | null;
+  progress?: number | null;
+  created_at?: string;
+}
+
+export type OverlayType = "text" | "image" | "video";
+
+export interface Overlay {
+  id?: string;        // frontend-only, for selection/drag
+  type: OverlayType;
+  content: string;    // text, or filename for image/clip
+  x: number;          // 0–1
+  y: number;          // 0–1
+  start_time: number; // seconds
+  end_time: number;
+
+  // text styling
+  color?: string;
+  font_size?: number;
+  box?: boolean;
+  box_color?: string;
+  box_borderw?: number;
+}
+
+export interface JobDetail extends Job {
+  overlays: Overlay[];
+  input_path: string;
+  output_path: string | null;
+}
+
+```
+
+### 4.2 API client (`lib/api.ts`)
+
+```ts
+import axios from "axios";
+
+export const API_BASE_URL = "http://10.0.2.2:8000"; // for Android emulator
+// or "http://localhost:8000" for iOS simulator / web
+// or "http://LOCAL_IP:8000" for Real-Device Testing
+
+export const api = axios.create({
+  baseURL: `${API_BASE_URL}/api/v1`,
+  timeout: 10000,
+});
+
+```
+
+----------
+
+## 5. Screens
+
+### 5.1 Jobs Screen (`app/index.tsx`)
+
+The Jobs screen:
+
+-   Fetches all jobs from `GET /api/v1/jobs`.
+    
+-   Shows them in a `FlatList`.
+    
+-   Displays a **circular progress** thumbnail or a checkmark when done.
+    
+-   Has a **FAB (+)** to start a new project and navigate to the editor.
+    
+
+**Key behaviors:**
+
+-   Uses `useEffect` or `useFocusEffect` to call `fetchJobs()` on mount/focus.
+    
+-   `RefreshControl` on the `FlatList` enables pull-to-refresh.
+    
+-   Empty state shows “Start a new project” if no jobs.
+    
+
+**Core logic (simplified):**
+
+```tsx
+const [jobs, setJobs] = useState<Job[]>([]);
+const [loading, setLoading] = useState(false);
+
+const fetchJobs = useCallback(async () => {
+  try {
+    setLoading(true);
+    const res = await api.get<Job[]>("/jobs");
+    setJobs(res.data);
+  } catch (e) {
+    console.log("Failed to fetch jobs", e);
+  } finally {
+    setLoading(false);
+  }
+}, []);
+
+useEffect(() => {
+  fetchJobs();
+}, [fetchJobs]);
+
+```
+
+The list:
+
+```tsx
+<FlatList
+  contentContainerStyle={jobsStyles.listContent}
+  data={jobs}
+  keyExtractor={(item) => item.id}
+  ListHeaderComponent={() => <JobsHeader count={jobs.length} />}
+  renderItem={({ item }) => <JobListItem job={item} />}
+  refreshControl={
+    <RefreshControl refreshing={loading} onRefresh={fetchJobs} />
+  }
+/>
+
+```
+
+Floating action button:
+
+```tsx
+<TouchableOpacity
+  style={jobsStyles.fab}
+  onPress={() => router.push("/editor")}
+>
+  <Feather name="plus" size={24} color="#fff" />
+</TouchableOpacity>
+
+```
+
+----------
+
+### 5.2 Job card (`components/JobListItem.tsx`)
+
+Each job card:
+
+-   Fetches **detail** on mount: `GET /api/v1/jobs/{job_id}/detail`.
+    
+-   Shows status, message, and a circular progress thumbnail.
+    
+-   If job is `done` and has `output_path`, enables a **download button** that:
+    
+    -   Calls `GET /api/v1/jobs/{job_id}/result` via `expo-file-system`
+        
+    -   Saves MP4 to app’s document directory (or a subfolder like `ButterCutDownloads`).
+        
+
+**Detail fetch:**
+
+```ts
+useEffect(() => {
+  let cancelled = false;
+
+  const fetchDetail = async () => {
+    try {
+      setLoadingDetail(true);
+      const res = await api.get<JobDetail>(`/jobs/${job.id}/detail`);
+      if (!cancelled) setDetail(res.data);
+    } catch (e) {
+      console.log("Failed to load job detail", e);
+    } finally {
+      if (!cancelled) setLoadingDetail(false);
+    }
+  };
+
+  fetchDetail();
+  return () => {
+    cancelled = true;
+  };
+}, [job.id]);
+
+```
+
+**Progress & state:**
+
+```ts
+const progress = detail?.progress ?? job.progress ?? 0;
+const status: JobStatus = (detail?.status as JobStatus) ?? job.status;
+const isDone = status === "done" && progress >= 100;
+const hasResult = isDone && !!detail?.output_path;
+
+```
+
+**Download with `expo-file-system`:**
+
+```ts
+import * as FileSystem from "expo-file-system";
+
+const handleDownload = async () => {
+  if (!hasResult) return;
+
+  try {
+    const remoteUrl = `${API_BASE_URL}/api/v1/jobs/${job.id}/result`;
+    const dir = FileSystem.documentDirectory + "ButterCutDownloads/";
+
+    await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+
+    const fileUri = dir + `${job.id}_output.mp4`;
+    const result = await FileSystem.downloadAsync(remoteUrl, fileUri);
+
+    console.log("Download complete:", result);
+    Alert.alert("Download complete", `Saved to:\n${fileUri}`);
+  } catch (error) {
+    console.error("Download error:", error);
+    Alert.alert("Error", "Failed to download file");
+  }
+};
+
+```
+
+**Circular progress in thumbnail:**
+
+```tsx
+<View style={jobsStyles.thumbnail}>
+  {isDone ? (
+    <Feather name="check" size={24} color={colors.success} />
+  ) : (
+    <View style={{ alignItems: "center", justifyContent: "center" }}>
+      <View
+        style={{
+          position: "absolute",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Text style={{ fontSize: 10, color: "#4b5563", marginBottom: 2 }}>
+          {status === "error" ? "Error" : "Rendering"}
+        </Text>
+        <Text style={{ fontSize: 11, fontWeight: "600" }}>
+          {Math.round(progress)}%
+        </Text>
+      </View>
+
+      <CircularProgress
+        size={48}
+        strokeWidth={4}
+        progress={progress}
+        color={colors.primary}
+        backgroundColor="#e5e7eb"
+      />
+    </View>
+  )}
+</View>
+
+```
+
+----------
+
+### 5.3 Jobs header (`components/JobsHeader.tsx`)
+
+Simple header for the list:
+
+```tsx
+interface JobsHeaderProps {
+  count: number;
+}
+
+const JobsHeader: React.FC<JobsHeaderProps> = ({ count }) => {
+  const subtitle =
+    count === 0
+      ? "Start a new project to see it appear here."
+      : `${count} project${count === 1 ? "" : "s"} in your workspace`;
+
+  return (
+    <View style={jobsStyles.headerContainer}>
+      <Text style={jobsStyles.headerTitle}>Your Projects</Text>
+      <Text style={jobsStyles.headerSubtitle}>{subtitle}</Text>
+    </View>
+  );
+};
+
+```
+
+----------
+
+## 6. Editor Screen
+
+### 6.1 Overview (`app/editor.tsx`)
+
+The editor screen:
+
+-   Shows a **canvas video area**:
+    
+    -   If no video selected → big upload CTA in the canvas area itself.
+        
+    -   If video selected → plays video and overlays are drawn on top.
+        
+-   Under the canvas is a **bottom panel**:
+    
+    -   Buttons to add **Text**, **Image**, or **Clip** overlay.
+        
+    -   A **Render** button to submit the job.
+        
+    -   A dynamic editor section for the currently selected overlay.
+        
+
+Key state:
+
+```ts
+const [video, setVideo] = useState<SelectedVideo | null>(null);
+const [videoDurationSec, setVideoDurationSec] = useState<number | null>(null);
+const [overlays, setOverlays] = useState<Overlay[]>([]);
+const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
+const [isSubmitting, setIsSubmitting] = useState(false);
+const [isUploadingAsset, setIsUploadingAsset] = useState(false);
+
+```
+
+`SelectedVideo` includes:
+
+```ts
+type SelectedVideo = {
+  uri: string;
+  name: string;
+  mimeType?: string | null;
+};
+
+```
+
+### 6.2 Video selection
+
+When user taps the upload CTA (inside `OverlayPreview` when no video):
+
+```ts
+const pickMainVideo = async () => {
+  const result = await DocumentPicker.getDocumentAsync({
+    type: "video/*",
+    copyToCacheDirectory: true,
+  });
+
+  if (result.type === "success") {
+    setVideo({
+      uri: result.uri,
+      name: result.name,
+      mimeType: result.mimeType,
+    });
+    setVideoDurationSec(null);
+    setOverlays([]);
+    setSelectedOverlayId(null);
+  }
+};
+
+```
+
+----------
+
+### 6.3 Canvas & overlay preview (`components/OverlayPreview.tsx`)
+
+-   If `videoUri` is `null` → shows upload icon + helper text.
+    
+-   If `videoUri` present:
+    
+    -   Renders an `expo-av` `<Video>` in the background.
+        
+    -   Overlays are drawn absolutely positioned on top.
+        
+    -   Each overlay is **draggable** via `PanResponder`.
+        
+    -   Calls `onVideoDurationChange(durationSec)` when video loads.
+        
+
+**Empty state (no video):**
+
+```tsx
+if (!videoUri) {
+  return (
+    <View style={editorStyles.previewContainer} onLayout={onLayout}>
+      <TouchableOpacity
+        style={editorStyles.emptyCanvasTouchable}
+        onPress={onPickVideo}
+      >
+        <Feather name="upload" size={32} color="#9ca3af" />
+        <Text style={editorStyles.emptyCanvasTitle}>Upload a video</Text>
+        <Text style={editorStyles.emptyCanvasSubtitle}>
+          Tap here to choose a video from your device and start editing.
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+```
+
+**With video:**
+
+```tsx
+<Video
+  source={{ uri: videoUri }}
+  style={{ width: "100%", height: "100%", position: "absolute" }}
+  resizeMode="contain"
+  shouldPlay
+  isLooping
+  onPlaybackStatusUpdate={(status) => {
+    if (!status.isLoaded) return;
+    if (onVideoDurationChange && status.durationMillis != null) {
+      onVideoDurationChange(status.durationMillis / 1000);
+    }
+  }}
+/>
+
+```
+
+**Drag behavior:**
+
+-   Uses `PanResponder` per overlay.
+    
+-   Keeps overlay positions as normalized `[0–1]` values (`x`, `y`) so they’re resolution-independent.
+    
+-   On drag, updates those via `onUpdateOverlayPosition(id, newX, newY)`.
+    
+
+----------
+
+### 6.4 Adding overlays
+
+Buttons in the bottom panel:
+
+-   **Text**: creates a text overlay at center with default styling.
+    
+-   **Image**: creates an image overlay (requires asset upload).
+    
+-   **Clip**: creates a video overlay (requires asset upload).
+    
+
+Example:
+
+```ts
+const addOverlay = (type: OverlayType) => {
+  if (!video) {
+    Alert.alert("Select a video first");
+    return;
+  }
+
+  const id = genId();
+
+  const base: Overlay = {
+    id,
+    type,
+    content: type === "text" ? "New Text" : "",
+    x: 0.5,
+    y: 0.5,
+    start_time: 0,
+    end_time: 3,
+  };
+
+  if (type === "text") {
+    base.color = "white";
+    base.font_size = 32;
+    base.box = true;
+    base.box_color = "black@0.5";
+    base.box_borderw = 8;
+  }
+
+  setOverlays((prev) => [...prev, base]);
+  setSelectedOverlayId(id);
+};
+
+```
+
+----------
+
+### 6.5 Text overlay controls (`TextOverlayEditor.tsx`)
+
+For text overlays, the editor provides:
+
+-   Text content input
+    
+-   Color input field + **color palette** swatches
+    
+-   Box background toggle (`box`), `box_color`, `box_borderw`
+    
+-   Start & end **time sliders** mapped to actual video duration.
+    
+
+It takes `overlay`, `onUpdate(patch)`, `videoDurationSec`.
+
+Highlights:
+
+```tsx
+const COLOR_OPTIONS = ["#ffffff", "#f97316", "#22c55e", "#3b82f6", "#e11d48"];
+
+<View style={editorStyles.colorPaletteRow}>
+  {COLOR_OPTIONS.map((c) => {
+    const selected = overlay.color === c;
+    return (
+      <TouchableOpacity
+        key={c}
+        onPress={() => onUpdate({ color: c })}
+      >
+        <View
+          style={[
+            editorStyles.colorSwatch,
+            { backgroundColor: c },
+            selected && editorStyles.colorSwatchSelected,
+          ]}
+        />
+      </TouchableOpacity>
+    );
+  })}
+</View>
+
+```
+
+Timing sliders use `@react-native-community/slider`, and clamp `start_time` and `end_time` within `[0, videoDurationSec]` with some minimal gap.
+
+----------
+
+### 6.6 Image/Clip overlay controls (`OverlayTimingControls.tsx`)
+
+For **image** & **video** overlays, the UI shows:
+
+-   Button to `Upload file` / `Change file`
+    
+-   Simple label with file name
+    
+-   Start & end time sliders (same logic as text, but no font/box controls).
+    
+
+----------
+
+### 6.7 Overlay asset upload
+
+When an image/clip overlay is selected, user can attach file to it.
+
+Flow:
+
+1.  Pick file using `DocumentPicker` (images-only or videos-only based on `overlay.type`).
+    
+2.  Send `multipart/form-data` with `file` to **backend** route:
+    
+    -   `POST /api/v1/overlays/assets`
+        
+3.  Backend returns `{ id, filename, type, path }`.
+    
+4.  Frontend stores `overlay.content = filename`, which backend later resolves from `ASSETS_DIR`.
+    
+
+Example upload:
+
+```ts
+const uploadOverlayAsset = async (overlay: Overlay) => {
+  if (!overlay.id) return;
+
+  const result = await DocumentPicker.getDocumentAsync({
+    type: overlay.type === "image" ? ["image/*"] : ["video/*"],
+    copyToCacheDirectory: true,
+  });
+
+  if (result.type !== "success") return;
+
+  setIsUploadingAsset(true);
+
+  const formData = new FormData();
+  (formData as any).append("file", {
+    uri: result.uri,
+    name: result.name,
+    type:
+      result.mimeType ??
+      (overlay.type === "image" ? "image/*" : "video/*"),
+  });
+
+  const res = await fetch(`${api.defaults.baseURL}/overlays/assets`, {
+    method: "POST",
+    body: formData,
+  });
+
+  const data = await res.json();
+  updateOverlay(overlay.id, { content: data.filename });
+  setIsUploadingAsset(false);
+};
+
+```
+
+----------
+
+### 6.8 Submitting a render job
+
+On **Render** button:
+
+1.  Validate:
+    
+    -   A video is selected.
+        
+    -   At least one overlay exists.
+        
+2.  Build `FormData`:
+    
+    -   `file`: main video (React Native `uri`, `name`, `type`)
+        
+    -   `overlays`: JSON-stringified list of overlays (without `id`).
+        
+3.  POST to `/api/v1/jobs`.
+    
+4.  On success, show alert with job ID, navigate back to Jobs screen.
+    
+
+```ts
+const submitJob = async () => {
+  if (!video) {
+    Alert.alert("Select a video first");
+    return;
+  }
+  if (overlays.length === 0) {
+    Alert.alert("Add at least one overlay");
+    return;
+  }
+
+  try {
+    setIsSubmitting(true);
+
+    const formData = new FormData();
+    (formData as any).append("file", {
+      uri: video.uri,
+      name: video.name,
+      type: video.mimeType ?? "video/mp4",
+    });
+
+    const payload = overlays.map(({ id, ...rest }) => rest);
+    formData.append("overlays", JSON.stringify(payload));
+
+    const res = await fetch(`${api.defaults.baseURL}/jobs`, {
+      method: "POST",
+      body: formData,
+    });
+
+    const data = await res.json();
+    Alert.alert("Job created", `ID: ${data.id}`);
+    router.back();
+  } catch (e) {
+    console.log("Submit error", e);
+    Alert.alert("Something went wrong");
+  } finally {
+    setIsSubmitting(false);
+  }
+};
+
+```
+
+----------
+
+## 7. Styling & UX
+
+-   **Styles are split by screen**:
+    
+    -   `styles/jobsScreen.ts` for job list, header, FAB, card, download button.
+        
+    -   `styles/editorScreen.ts` for canvas, bottom panel, overlay editor controls.
+        
+-   A shared `styles/common.ts` defines `colors` (`primary`, `bg`, `text`, `success`, `muted`, etc.).
+    
+-   UX considerations:
+    
+    -   **Empty states**:
+        
+        -   Jobs list: “Start a new project…”
+            
+        -   Editor canvas: Upload CTA if no video.
+            
+    -   **Loading states**:
+        
+        -   Jobs list uses `RefreshControl`.
+            
+        -   Job card shows small spinner while loading detail.
+            
+        -   Editor shows “Uploading…” text when uploading overlay asset.
+            
+        -   Render button changes to “Submitting…” while job is being created.
+            
+    -   **Safety**:
+        
+        -   You can’t add overlays until a video is selected.
+            
+        -   Download button disabled until job is `done` and `output_path` exists.
+            
+
+----------
